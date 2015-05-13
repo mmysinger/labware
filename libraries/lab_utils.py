@@ -21,9 +21,10 @@ class ScriptError(StandardError):
 def libraries_path():
     """Example for how to bootstrap this package into a script"""
     module_path = os.path.realpath(os.path.dirname(__file__)) 
-    libraries_path = os.path.join(module_path, "..", "libraries")
-    sys.path.append(libraries_path)
-    #from libraries.lab_utils import gopen
+    labware_path = os.path.join(module_path, "..")
+    sys.path.append(labware_path)
+    #from libraries.lab_utils import ScriptError, gopen
+
 
 def gopen(fname, mode='rU'):
     """Flexibly open compressed files."""
@@ -40,3 +41,13 @@ def gopen(fname, mode='rU'):
     else:
         f = open(fname, mode)
     return f
+
+
+def float_close(x, y, threshold=0.5):
+    """Check if two floats are within threshold percent of one another."""
+    if x > y:
+        x, y = y, x
+    if (y - x)/y <= threshold/100.0:
+        return True
+    else:
+        return False
