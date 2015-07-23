@@ -22,16 +22,16 @@ labware_path = os.path.join(module_path, "..")
 sys.path.append(labware_path)
 from libraries.lab_utils import ScriptError, gopen
 
-def filter_results(in_csv, out_csv, select_affinity=SELECTED_AFFINITY,
+def filter_results(sea_reader, sea_writer, select_affinity=SELECTED_AFFINITY,
                    best_affinity=False, evalue_threshold=EVALUE_THRESHOLD):
     """Filter original SEA results"""
-    header = in_csv.next()
+    header = sea_reader.next()
     logging.info("Skipping input header: %s" % str(header))
-    out_csv.writerow(header)
+    sea_writer.writerow(header)
     if best_affinity:
         results = {}
     logging.info("Filtering results")
-    for row in in_csv:
+    for row in sea_reader:
         query_id, reference_id, evalue, maxtc = row
         evalue = float(evalue)
         if evalue_threshold and evalue >= evalue_threshold:
@@ -43,14 +43,15 @@ def filter_results(in_csv, out_csv, select_affinity=SELECTED_AFFINITY,
             affinity = select_affinity
         if best_affinity:
             key = (query_id, target_id)
-            if key not in results or results[key][0] > evalue:
+            if ( key not in results or results[key][0] > evalue or
+                 (float(maxtc) == 1.0  and float(results[key][1][3]) < 1.0) ):
                 results[key] = (evalue, row)
         elif select_affinity and select_affinity == affinity:
-            out_csv.writerow(row)
+            sea_writer.writerow(row)
     if best_affinity:
-        logging.info("Selecting best affinity result")
+        logging.info("Selecting best affinity results")
         for key in results:
-            out_csv.writerow(results[key][1])
+            sea_writer.writerow(results[key][1])
     logging.info("Finished")
 
 def handler(in_fn=None, out_fn=None, **kwargs):
@@ -67,11 +68,11 @@ def handler(in_fn=None, out_fn=None, **kwargs):
     else:
         out_f = gopen(out_fn, "w")
         logging.info("Outputing scores file to %s" % out_fn)
-    in_csv = csv.reader(in_f)
-    out_csv = csv.writer(out_f)
+    sea_reader = csv.reader(in_f)
+    sea_writer = csv.writer(out_f)
     try:
         try:
-            filter_results(in_csv, out_csv, **kwargs)
+            filter_results(sea_reader, sea_writer, **kwargs)
         except ScriptError, message:
             logging.error(message)
             return message.value
@@ -84,7 +85,7 @@ def main(argv):
     """Parse arguments."""
     logging.basicConfig(level=logging.INFO,
                         format="%(levelname)s: %(message)s")
-    description = "Compare SEAware results to original SEA."
+    description = "Filter original SEA results"
     parser = ArgumentParser(description=description)
     parser.add_argument("-i", "--infile", default=None, 
                         help="input SEA scores filename (default: stdin)")
