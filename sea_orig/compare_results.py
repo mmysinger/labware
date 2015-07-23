@@ -20,27 +20,10 @@ from itertools import izip_longest
 SELECTED_AFFINITY = "10000"
 PVALUE_THRESHOLD = 1.0e-5
 
-class ScriptError(StandardError):
-    def __init__(self, msg, value=99):
-        self.value = value
-        Exception.__init__(self, msg)
-
-        
-def gopen(fname, mode='rU'):
-    """Flexibly open compressed files."""
-    if os.path.splitext(fname)[-1] == '.%s' % 'gz':
-        if 'b' not in mode:
-            # gzip does not support universal newlines
-            mode = mode.replace('U', '') + 'b'
-        f = gzip.open(fname, mode)
-    elif os.path.splitext(fname)[-1] == '.%s' % 'bz2':
-        if 'b' not in mode:
-            # bzip2 does support universal newlines
-            mode = mode + 'b'
-        f = bz2.BZ2File(fname, mode)
-    else:
-        f = open(fname, mode)
-    return f
+module_path = os.path.realpath(os.path.dirname(__file__)) 
+labware_path = os.path.join(module_path, "..")
+sys.path.append(labware_path)
+from libraries.lab_utils import ScriptError, gopen
 
 def guess_num_comparisons(seaware_value, sea_value):
     """Guess number of comparisons from e-value to p-value ratio."""
@@ -69,17 +52,17 @@ def convert_pvalue(seaware_pvalue, num_comparisons):
     pvalue, maxtc = seaware_pvalue
     return (pvalue * num_comparisons, maxtc)
     
-def compare_results(seaware_f, sea_f, num_comparisons=None):
+def compare_results(seaware_reader, sea_reader, num_comparisons=None):
     """Compare SEAware results to original SEA"""
-    seaware_f.next() # Skip header
-    sea_f.next() # Skip header
+    seaware_reader.next() # Skip header
+    sea_reader.next() # Skip header
     seaware_results = {}
     sea_results = {}
     sea_count = 0
     seaware_count = 0
     yield "Differences between SEAware and SEA files:"
     yield "\t".join(["query_id", "reference_id", "seaware_evalue", "seaware_maxtc", "sea_evalue", "sea_maxtc"]) 
-    for seaware_line, sea_line in izip_longest(seaware_f, sea_f):
+    for seaware_line, sea_line in izip_longest(seaware_reader, sea_reader):
         if seaware_line:
             cid, smiles, tuid, affinity, pvalue, maxtc, short, desc = seaware_line
             pvalue = float(pvalue)
