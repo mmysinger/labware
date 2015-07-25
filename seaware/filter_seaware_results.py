@@ -24,7 +24,8 @@ sys.path.append(labware_path)
 from libraries.lab_utils import ScriptError, gopen
         
 def filter_seaware_results(seaware_reader, seaware_writer, best_affinity=False, 
-        select_affinity=SELECTED_AFFINITY, pvalue_threshold=PVALUE_THRESHOLD):
+        select_affinity=SELECTED_AFFINITY, pvalue_threshold=PVALUE_THRESHOLD,
+        setcore=False):
     """Filter SEAware results by affinity group and p-value."""
     logging.info("Filtering out p-values above: %g" % pvalue_threshold)
     if best_affinity:
@@ -39,7 +40,10 @@ def filter_seaware_results(seaware_reader, seaware_writer, best_affinity=False,
     selected_counter = 0
     threshold_counter = 0
     for row_counter, row in enumerate(seaware_reader):
-        cid, smiles, tuid, affinity, pvalue, maxtc, short, desc = row
+        if setcore:
+            cid, tuid, affinity, pvalue, maxtc, short, desc = row
+        else:
+            cid, smiles, tuid, affinity, pvalue, maxtc, short, desc = row
         pvalue = float(pvalue)
         maxtc = float(maxtc)
         if pvalue_threshold and pvalue >= pvalue_threshold:
@@ -110,11 +114,14 @@ def main(argv):
                         type=float, 
                         help="remove all results worse than this p-value " +
                         "threshold (default: %(default)g)")
+    parser.add_argument("--set-mode", action='store_true', 
+                        help="Compare set-versus-set results")
     options = parser.parse_args(args=argv[1:])
     return handler(in_fn=options.infile, out_fn=options.outfile,
                    select_affinity=options.select_affinity,
-                   best_affinity=options.best_affinity,
-                   pvalue_threshold=options.pvalue_threshold)
+                   best_affinity=options.best_affinity, 
+                   pvalue_threshold=options.pvalue_threshold,
+                   setcore=options.set_mode)
     options = parser.parse_args(args=argv[1:])
     return handler(infile=options.infile, outfile=options.outfile)
 

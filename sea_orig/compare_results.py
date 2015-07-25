@@ -52,7 +52,8 @@ def convert_pvalue(seaware_pvalue, num_comparisons):
     pvalue, maxtc = seaware_pvalue
     return (pvalue * num_comparisons, maxtc)
     
-def compare_results(seaware_reader, sea_reader, num_comparisons=None):
+def compare_results(seaware_reader, sea_reader, num_comparisons=None,
+                    setcore=False):
     """Compare SEAware results to original SEA"""
     seaware_reader.next() # Skip header
     sea_reader.next() # Skip header
@@ -64,7 +65,10 @@ def compare_results(seaware_reader, sea_reader, num_comparisons=None):
     yield "\t".join(["query_id", "reference_id", "seaware_evalue", "seaware_maxtc", "sea_evalue", "sea_maxtc"]) 
     for seaware_line, sea_line in izip_longest(seaware_reader, sea_reader):
         if seaware_line:
-            cid, smiles, tuid, affinity, pvalue, maxtc, short, desc = seaware_line
+            if setcore:
+                cid, tuid, affinity, pvalue, maxtc, short, desc = seaware_line
+            else:
+                cid, smiles, tuid, affinity, pvalue, maxtc, short, desc = seaware_line
             pvalue = float(pvalue)
             maxtc = float(maxtc)
             if not SELECTED_AFFINITY or affinity == SELECTED_AFFINITY:
@@ -157,10 +161,14 @@ def main(argv):
                         help="Input original SEA scores file (csv format)")
     parser.add_argument("-n", "--num-comparisons", type=int, 
                         help="Number of set comparisons printed during original SEA run (default: approximate guess)")
+    parser.add_argument("-s", "--set-mode", action='store_true', 
+                        help="Compare set-versus-set results")
     parser.add_argument("-o", "--outfile",
                         help="Output filename (default: stdout)")
     options = parser.parse_args(args=argv[1:])
-    return handler(options.seaware, options.sea, out_fn=options.outfile, num_comparisons=options.num_comparisons)
+    return handler(options.seaware, options.sea, out_fn=options.outfile,
+                   num_comparisons=options.num_comparisons,
+                   setcore=options.set_mode)
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv))
