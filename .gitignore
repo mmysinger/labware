@@ -8,3 +8,6 @@ __pycache__/
 # Distribution / packaging
 build/
 
+#Mac
+.DS_Store
+
