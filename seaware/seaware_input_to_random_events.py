@@ -21,6 +21,7 @@ import numpy as np
 from sklearn.neighbors import KernelDensity
 from sklearn.grid_search import GridSearchCV
 
+
 module_path = os.path.realpath(os.path.dirname(__file__)) 
 labware_path = os.path.join(module_path, "..")
 sys.path.append(labware_path)

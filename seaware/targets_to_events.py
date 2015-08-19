@@ -16,10 +16,12 @@ from argparse import ArgumentParser
 import csv
 import itertools
 
+
 module_path = os.path.realpath(os.path.dirname(__file__)) 
 labware_path = os.path.join(module_path, "..")
 sys.path.append(labware_path)
 from libraries.lab_utils import ScriptError, gopen
+
         
 def targets_to_events(targets_reader):
     """Module code starts here."""
@@ -35,6 +37,7 @@ def targets_to_events(targets_reader):
         for mol in mols.split(mols_sep):
             yield [mol, tid, affinity, name]
     logging.info("Finished writing events file")
+
 
 def handler(in_fn=None, out_fn=None, **kwargs):
     """I/O handling for the script."""
@@ -66,6 +69,7 @@ def handler(in_fn=None, out_fn=None, **kwargs):
         out_f.close()
     return 0
 
+
 def main(argv):
     """Parse arguments."""
     logging.basicConfig(level=logging.INFO,
@@ -79,6 +83,7 @@ def main(argv):
                         help="output file (default: stdout)")
     options = parser.parse_args(args=argv[1:])
     return handler(in_fn=options.infile, out_fn=options.outfile)
+
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv))
