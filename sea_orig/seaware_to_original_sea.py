@@ -31,7 +31,7 @@ def convert_molecules(csv_reader, sea_root):
     if row and row[0].startswith("fingerprint_type"):
         logging.info("Skipping fingerprint headers: %s" % row)
         row = csv_reader.next()
-    if row and row[0] == "molecule id":
+    if row and row[0].lower() == "molecule id":
         logging.info("Skipping column headers: %s" % row)
         row = csv_reader.next()
     smiles_filename = sea_root + op.extsep + "smi"
@@ -65,7 +65,7 @@ def convert_targets(csv_reader, sea_root):
     logging.info("Reading SEAware targets file")
     field_sep = ";"
     row = csv_reader.next()
-    if row and row[0] == "target id":
+    if row and row[0].lower() == "target id":
         logging.info("Skipping column headers: %s" % row)
         row = csv_reader.next()
     set_filename = sea_root + op.extsep + "set"        
