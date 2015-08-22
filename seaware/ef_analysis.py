@@ -13,7 +13,7 @@ import logging
 import os.path as op
 from argparse import ArgumentParser
 import csv
-from collections import namedtuple, defaultdict
+from collections import namedtuple, defaultdict, Counter
 
 module_path = os.path.realpath(os.path.dirname(__file__)) 
 labware_path = os.path.join(module_path, "..")
@@ -83,6 +83,7 @@ def read_results(results_reader, has_event):
 
 
 def prune_events(events_to_drugs, has_event, has_target):
+    """Prune event molecules that are not mapped to targets"""
     pruned = dict((event, drugs & has_target) for event, drugs in
                                                 events_to_drugs.iteritems())
     rejects = has_event - flatten_setdict(pruned)
@@ -91,7 +92,8 @@ def prune_events(events_to_drugs, has_event, has_target):
     return pruned
 
 
-def precompute_stats(events_to_drugs, targets_to_drugs):
+def precompute_sums(events_to_drugs, targets_to_drugs):
+    """Pre-compute E, T, and p sums for enrichment factor calculation"""
     # For each event, calculate total number of molecule-target pairs
     drugs_to_targets = flip_setdict(targets_to_drugs)
     E = {}
@@ -100,7 +102,9 @@ def precompute_stats(events_to_drugs, targets_to_drugs):
 
     # For each target, calculate total number of molecule-event pairs
     drugs_to_events = flip_setdict(events_to_drugs)
-    assert(len(drugs_to_events) == len(drugs_to_targets))
+    ndrugs = len(drugs_to_events)
+    assert(ndrugs == len(drugs_to_targets))
+    logging.info("After pruning, %d total molecule links remain" % ndrugs)
     del drugs_to_targets
     T = {}
     for target, drugs in targets_to_drugs.iteritems():
@@ -114,19 +118,98 @@ def precompute_stats(events_to_drugs, targets_to_drugs):
             p[(target, event)] = len(t_drugs & e_drugs)    
     return E, T, p
 
+
+def compute_efs(E, T, p, events_to_drugs, targets_to_drugs, 
+                min_pairs=CUTOFF_MINPAIRS, ef_cutoff=CUTOFF_EF):
+    """Compute enrichment factors"""
+    # EF = p/(E*T/P)
+    # P = global count of all event-molecule-target triplets
+    # p = for each target-event pair, count common linking molecules 
+    # E = for each event, number of linked molecule-target pairs
+    # T = for each target, number of linked molecule-event pairs
+
+    # Total count of all event-molecule-target triplets
+    P = sum(p.values())
+    logging.info("Total number event-molecule-target triplets: P = %d" % P)
+    P = float(P)
+    efs = {}
+    for event in events_to_drugs:
+        ee = E[event]
+        if ee == 0:
+            continue
+        for target in targets_to_drugs:
+            tt = T[target]
+            pte = p[(target, event)] 
+            if pte < min_pairs:
+                continue
+            try:
+                ef = float(pte)/(ee*tt/P)
+            except:
+                logging.warn('EF Error', event, target, 
+                             pte, ee, tt)
+                continue
+            if ef > ef_cutoff:
+                efs[(target, event)] = ef
+    return efs
+
+
+def map_contingency_tables(efs, events_to_drugs, targets_to_drugs):
+    """Calculate contingency table for every target-event pair"""
+    # Count number of drug-target pairs for each drug
+    target_counts = Counter()
+    for drugs in targets_to_drugs.itervalues(): 
+        target_counts.update(drugs)
+    num_pairs = sum(target_counts.itervalues())
+    # Use counts to quickly compute contingency sums
+    logging.info("Computing contingency tables")
+    contingency_tables = {}
+    for target, event in efs.iterkeys():
+        e_drugs = events_to_drugs[event]
+        t_drugs = targets_to_drugs[target]
+        both = sum(target_counts[x] for x in e_drugs & t_drugs) 
+        events = sum(target_counts[x] for x in e_drugs) - both
+        targets = sum(target_counts[x] for x in t_drugs) - both
+        neither = num_pairs - both - events - targets
+        contingency_tables[(target, event)] = np.array([[both, events], 
+                                                        [targets, neither]])
+    return contingency_tables
+
+
+def compute_q_values(contingencies):
+    logging.info("Computing p and q-values")
+    target_event_pairs = []
+    p_vals = []
+    for (target, event), table in contingencies.iteritems():
+        chi2, pvalue, ddof, expected = stats.chi2_contingency(table)
+        target_event_pairs.append((target, event))
+        p_vals.append(pvalue)
+    #Calculate the qvalue (p-adjusted FDR)
+    reject_array, q_vals, alpha_c_sidak, alpha_c_bonf = sm_multi.multipletests(
+        p_vals, alpha=0.05, method='holm')
+    return target_event_pairs, p_vals, q_vals
+
+
 def ef_analysis(events_reader, results_reader, min_pairs=CUTOFF_MINPAIRS, 
-                ef=CUTOFF_EF):
+                ef_cutoff=CUTOFF_EF):
     """Enrichment factor analysis."""
     events_to_drugs, has_event = read_events(events_reader)
     targets_to_drugs, has_target, targets = read_results(results_reader, 
                                                              has_event)
     events_to_drugs = prune_events(events_to_drugs, has_event, has_target)
     del has_target, has_event
-    E, T, p = precompute_stats(events_to_drugs, targets_to_drugs)
-    P = sum(p.values())
-    logging.info("Total number of molecular links between " + 
-                 "all target-event pairs: P = %d" % P)
-    pass
+    E, T, p = precompute_sums(events_to_drugs, targets_to_drugs)
+    efs = compute_efs(E, T, p, events_to_drugs, targets_to_drugs, 
+                      min_pairs=min_pairs, ef_cutoff=ef_cutoff)
+    contingencies = map_contingency_tables(efs, events_to_drugs, 
+                                           targets_to_drugs)
+    target_event_pairs, p_vals, q_vals = compute_q_values(contingencies)
+    assert(len(target_event_pairs) == len(efs))
+    # Write output file
+    yield ["uniprot_id", "targ_name", "event", "ef", "p-value", "q-value"]
+    for te_pair, p_val, q_val in zip(target_event_pairs, p_vals, q_vals):
+        target, event = te_pair
+        yield [target, targets[target].name, event, "%.5g" % efs[te_pair], 
+               "%.5g" % p_val, "%.5g" % q_val]
 
 
 def handler(events_fn, results_fn, out_fn=None, **kwargs):
@@ -164,7 +247,7 @@ def main(argv):
     """Parse arguments."""
     logging.basicConfig(level=logging.INFO,
                         format="%(levelname)s: %(message)s")
-    description = "Compute enrichment factors."
+    description = "Compute enrichment factors and q-values."
     parser = ArgumentParser(description=description)
     parser.add_argument("events",  
                         help="Events file mapping molecules to events")
@@ -172,14 +255,14 @@ def main(argv):
                         help="SEAware results mapping molecules to targets")
     parser.add_argument("-m", "--min-pairs", type=int, default=CUTOFF_MINPAIRS, 
                         help="Minimum pairs cutoff for EF analysis.")
-    parser.add_argument("-e", "--ef", type=float, default=CUTOFF_EF, 
+    parser.add_argument("-e", "--ef-cutoff", type=float, default=CUTOFF_EF, 
                         help="EF factor cutoff to write results.")
     parser.add_argument("-o", "--outfile", default=None, 
                         help="output file (default: stdout)")
     options = parser.parse_args(args=argv[1:])
     return handler(events_fn=options.events, results_fn=options.results, 
                    out_fn=options.outfile, min_pairs=options.min_pairs, 
-                   ef=options.ef)
+                   ef_cutoff=options.ef_cutoff)
 
 
 if __name__ == "__main__":
