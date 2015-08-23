@@ -2,9 +2,11 @@
 """
 Copyright (C) 2015 Michael M Mysinger
 
-Template: one line summary goes here.
+Compute enrichment factors and q-values.
 
-Michael Mysinger 201505 Created
+Michael Keiser 201210 Created
+Garrett Gaskins 201505 Converted p and q-value calculations to Python 
+Michael Mysinger 201508 Refactored and speed optimized
 """
 
 import os
@@ -12,8 +14,12 @@ import sys
 import logging
 import os.path as op
 from argparse import ArgumentParser
+
 import csv
 from collections import namedtuple, defaultdict, Counter
+import numpy as np
+from scipy import stats
+import statsmodels.sandbox.stats.multicomp as sm_multi
 
 module_path = os.path.realpath(os.path.dirname(__file__)) 
 labware_path = os.path.join(module_path, "..")
@@ -49,8 +55,9 @@ def read_events(events_reader):
     logging.info("Reading events")
     events_to_drugs = defaultdict(set)
     for row in events_reader:
-        # XXX - Is affinity column needed?
-        cid, eid, affinity, event = row
+        #cid, eid, event = row
+        # read Garrett's file format
+        cid, altid, eid = row
         events_to_drugs[eid].add(cid)
     has_event = flatten_setdict(events_to_drugs)
     logging.info("Mapped %d events to %d molecules" % (
@@ -67,7 +74,10 @@ def read_results(results_reader, has_event):
     targets_to_drugs = defaultdict(set)
     rejects = set()
     for row in results_reader:
-        cid, smiles, tid, affinity, pvalue, maxtc, name, desc = row
+        #cid, smiles, tid, affinity, pvalue, maxtc, name, desc = row
+        # read Garrett's file format
+        cid, altid, tid, affinity, pvalue, maxtc, name = row
+        desc = ""
         if cid not in has_event:
             rejects.add(cid)
             continue
@@ -96,20 +106,18 @@ def precompute_sums(events_to_drugs, targets_to_drugs):
     """Pre-compute E, T, and p sums for enrichment factor calculation"""
     # For each event, calculate total number of molecule-target pairs
     drugs_to_targets = flip_setdict(targets_to_drugs)
+    drugs_to_events = flip_setdict(events_to_drugs)
+    ndrugs = len(drugs_to_events)
+    assert(ndrugs == len(drugs_to_targets))
+    logging.info("After pruning, %d total molecule links remain" % ndrugs)
     E = {}
     for event, drugs in events_to_drugs.iteritems():
         E[event] = sum(len(drugs_to_targets[drug]) for drug in drugs)
 
     # For each target, calculate total number of molecule-event pairs
-    drugs_to_events = flip_setdict(events_to_drugs)
-    ndrugs = len(drugs_to_events)
-    assert(ndrugs == len(drugs_to_targets))
-    logging.info("After pruning, %d total molecule links remain" % ndrugs)
-    del drugs_to_targets
     T = {}
     for target, drugs in targets_to_drugs.iteritems():
         T[target] = sum(len(drugs_to_events[drug]) for drug in drugs)
-    del drugs_to_events
 
     # For each target-event pair, calculate number of molecules in common
     p = {}
@@ -176,6 +184,7 @@ def map_contingency_tables(efs, events_to_drugs, targets_to_drugs):
 
 
 def compute_q_values(contingencies):
+    """Compute p and q-values"""
     logging.info("Computing p and q-values")
     target_event_pairs = []
     p_vals = []
@@ -191,7 +200,7 @@ def compute_q_values(contingencies):
 
 def ef_analysis(events_reader, results_reader, min_pairs=CUTOFF_MINPAIRS, 
                 ef_cutoff=CUTOFF_EF):
-    """Enrichment factor analysis."""
+    """Compute enrichment factors and write q-values."""
     events_to_drugs, has_event = read_events(events_reader)
     targets_to_drugs, has_target, targets = read_results(results_reader, 
                                                              has_event)
@@ -204,7 +213,7 @@ def ef_analysis(events_reader, results_reader, min_pairs=CUTOFF_MINPAIRS,
                                            targets_to_drugs)
     target_event_pairs, p_vals, q_vals = compute_q_values(contingencies)
     assert(len(target_event_pairs) == len(efs))
-    # Write output file
+    logging.info("Writing output files")
     yield ["uniprot_id", "targ_name", "event", "ef", "p-value", "q-value"]
     for te_pair, p_val, q_val in zip(target_event_pairs, p_vals, q_vals):
         target, event = te_pair
@@ -220,13 +229,13 @@ def handler(events_fn, results_fn, out_fn=None, **kwargs):
     logging.info("SEAware results file: %s" % results_fn)
     results_f = open(results_fn, "r")
     results_reader = csv.reader(results_f)
-    if outfile is None:
+    if out_fn is None:
         out_f = sys.stdout
         out_location = "standard out"
     else:
-        out_f = open(outfile, "w")
+        out_f = open(out_fn, "w")
         out_location = out_fn
-    logging.info("Output file: %s" %% out_location)
+    logging.info("Output file: %s" % out_location)
     out_writer = csv.writer(out_f)
     try:
         try:
@@ -247,16 +256,16 @@ def main(argv):
     """Parse arguments."""
     logging.basicConfig(level=logging.INFO,
                         format="%(levelname)s: %(message)s")
-    description = "Compute enrichment factors and q-values."
+    description = "Compute enrichment factors and q-values"
     parser = ArgumentParser(description=description)
     parser.add_argument("events",  
                         help="Events file mapping molecules to events")
     parser.add_argument("results",  
                         help="SEAware results mapping molecules to targets")
     parser.add_argument("-m", "--min-pairs", type=int, default=CUTOFF_MINPAIRS, 
-                        help="Minimum pairs cutoff for EF analysis.")
+        help="Minimum pairs cutoff for EF analysis (default: %(default)s)")
     parser.add_argument("-e", "--ef-cutoff", type=float, default=CUTOFF_EF, 
-                        help="EF factor cutoff to write results.")
+        help="EF factor cutoff to write results (default: %(default)s)")
     parser.add_argument("-o", "--outfile", default=None, 
                         help="output file (default: stdout)")
     options = parser.parse_args(args=argv[1:])
