@@ -29,7 +29,7 @@ from libraries.lab_utils import ScriptError, gopen
 Target = namedtuple("Target", "name description")
 
 # XXX - MMM currently set for bitterdb, may want better defaults 
-CUTOFF_EF = 2.0           # Nat2012: EF > 1
+CUTOFF_EF = 3.0           # Nat2012: EF > 1
 CUTOFF_MINPAIRS = 3       # Nat2012: Target-ADR pairs > 10 retained
 
 
@@ -55,9 +55,9 @@ def read_events(events_reader):
     logging.info("Reading events")
     events_to_drugs = defaultdict(set)
     for row in events_reader:
-        #cid, eid, event = row
+        cid, eid, event = row
         # read Garrett's file format
-        cid, altid, eid = row
+        #cid, altid, eid = row
         events_to_drugs[eid].add(cid)
     has_event = flatten_setdict(events_to_drugs)
     logging.info("Mapped %d events to %d molecules" % (
@@ -74,10 +74,10 @@ def read_results(results_reader, has_event):
     targets_to_drugs = defaultdict(set)
     rejects = set()
     for row in results_reader:
-        #cid, smiles, tid, affinity, pvalue, maxtc, name, desc = row
+        cid, smiles, tid, affinity, pvalue, maxtc, name, desc = row
         # read Garrett's file format
-        cid, altid, tid, affinity, pvalue, maxtc, name = row
-        desc = ""
+        #cid, altid, tid, affinity, pvalue, maxtc, name = row
+        #desc = ""
         if cid not in has_event:
             rejects.add(cid)
             continue
@@ -107,9 +107,7 @@ def precompute_sums(events_to_drugs, targets_to_drugs):
     # For each event, calculate total number of molecule-target pairs
     drugs_to_targets = flip_setdict(targets_to_drugs)
     drugs_to_events = flip_setdict(events_to_drugs)
-    ndrugs = len(drugs_to_events)
-    assert(ndrugs == len(drugs_to_targets))
-    logging.info("After pruning, %d total molecule links remain" % ndrugs)
+    assert(len(drugs_to_events) == len(drugs_to_targets))
     E = {}
     for event, drugs in events_to_drugs.iteritems():
         E[event] = sum(len(drugs_to_targets[drug]) for drug in drugs)
@@ -156,8 +154,8 @@ def compute_efs(E, T, p, events_to_drugs, targets_to_drugs,
                 logging.warn('EF Error', event, target, 
                              pte, ee, tt)
                 continue
-            if ef > ef_cutoff:
-                efs[(target, event)] = ef
+            efs[(target, event)] = ef
+    logging.info("Computed %d target-event enrichment factors" % len(efs))
     return efs
 
 
@@ -201,6 +199,8 @@ def compute_q_values(contingencies):
 def ef_analysis(events_reader, results_reader, min_pairs=CUTOFF_MINPAIRS, 
                 ef_cutoff=CUTOFF_EF):
     """Compute enrichment factors and write q-values."""
+    logging.info("Using min-pairs cutoff = %d" % min_pairs)
+    logging.info("Using EF cutoff = %.2f" % ef_cutoff)
     events_to_drugs, has_event = read_events(events_reader)
     targets_to_drugs, has_target, targets = read_results(results_reader, 
                                                              has_event)
@@ -213,12 +213,16 @@ def ef_analysis(events_reader, results_reader, min_pairs=CUTOFF_MINPAIRS,
                                            targets_to_drugs)
     target_event_pairs, p_vals, q_vals = compute_q_values(contingencies)
     assert(len(target_event_pairs) == len(efs))
-    logging.info("Writing output files")
+    logging.info("Writing output")
     yield ["uniprot_id", "targ_name", "event", "ef", "p-value", "q-value"]
+    count = 0
     for te_pair, p_val, q_val in zip(target_event_pairs, p_vals, q_vals):
         target, event = te_pair
-        yield [target, targets[target].name, event, "%.5g" % efs[te_pair], 
-               "%.5g" % p_val, "%.5g" % q_val]
+        if efs[te_pair] > ef_cutoff:
+            count += 1
+            yield [target, targets[target].name, event, "%.5g" % efs[te_pair],
+                   "%.5g" % p_val, "%.5g" % q_val]
+    logging.info("Wrote %d q-values to output" % count)
 
 
 def handler(events_fn, results_fn, out_fn=None, **kwargs):
