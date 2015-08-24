@@ -103,7 +103,7 @@ def seaware_input_to_random_events(in_reader, targets_reader,
         print random_size
         cluster_id = "cluster_%04d" % (i+1)
         for cid in random.sample(cids, random_size):
-            yield [cid, cluster_id, "", cluster_id]
+            yield [cid, cluster_id]
 
 
 def handler(in_fn, targets_fn, out_fn, **kwargs):

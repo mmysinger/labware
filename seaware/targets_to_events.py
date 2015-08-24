@@ -27,6 +27,7 @@ def targets_to_events(targets_reader):
     """Module code starts here."""
     field_sep = ";"
     mols_sep = ":"
+    tid_sep = "_"
     logging.info("Reading SEAware targets file")
     row = targets_reader.next()
     if row and row[0] == "target id":
@@ -34,8 +35,11 @@ def targets_to_events(targets_reader):
         row = targets_reader.next()
     for row in itertools.chain([row], targets_reader):
         tid, name, affinity, mols, description = row
+        out_id = tid
+        if affinity:
+            out_id = tid + tid_sep + affinity 
         for mol in mols.split(mols_sep):
-            yield [mol, tid, affinity, name]
+            yield [mol, out_id]
     logging.info("Finished writing events file")
 
 

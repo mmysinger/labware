@@ -55,7 +55,8 @@ def read_events(events_reader):
     logging.info("Reading events")
     events_to_drugs = defaultdict(set)
     for row in events_reader:
-        cid, eid, event = row
+        cid, eid = row[:2]
+        # XXX - may want two optional columns, for extra drug and event info
         # read Garrett's file format
         #cid, altid, eid = row
         events_to_drugs[eid].add(cid)
@@ -81,6 +82,7 @@ def read_results(results_reader, has_event):
         if cid not in has_event:
             rejects.add(cid)
             continue
+        # implicitly takes the union over remaining affinity groups
         targets_to_drugs[tid].add(cid)
         if tid not in targets:
             targets[tid] = Target(name, desc)
