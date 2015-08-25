@@ -87,10 +87,10 @@ def read_results(results_reader, has_event):
         if tid not in targets:
             targets[tid] = Target(name, desc)
     has_target = flatten_setdict(targets_to_drugs)
+    logging.info("Skipped %d target molecules that were not mapped to events" % 
+                 len(rejects))
     logging.info("Mapped %d targets to %d molecules" % (
         len(targets_to_drugs), len(has_target)))
-    logging.info("Skipped %d molecules that were not mapped to events" % 
-                 len(rejects))
     return targets_to_drugs, has_target, targets
 
 
@@ -99,7 +99,7 @@ def prune_events(events_to_drugs, has_event, has_target):
     pruned = dict((event, drugs & has_target) for event, drugs in
                                                 events_to_drugs.iteritems())
     rejects = has_event - flatten_setdict(pruned)
-    logging.info("Pruned %d molecules that were not mapped to targets" % 
+    logging.info("Pruned %d event molecules that were not mapped to targets" % 
                  len(rejects))
     return pruned
 
