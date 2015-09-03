@@ -30,7 +30,7 @@ Target = namedtuple("Target", "name description")
 
 # XXX - MMM currently set for bitterdb, may want better defaults 
 CUTOFF_EF = 3.0           # Nat2012: EF > 1
-CUTOFF_MINPAIRS = 3       # Nat2012: Target-ADR pairs > 10 retained
+CUTOFF_MINPAIRS = 4       # Nat2012: Target-ADR pairs > 10 retained
 
 
 def flip_setdict(in_dict):
@@ -227,7 +227,7 @@ def ef_analysis(events_reader, results_reader, min_pairs=CUTOFF_MINPAIRS,
     logging.info("Wrote %d q-values to output" % count)
 
 
-def handler(events_fn, results_fn, out_fn=None, **kwargs):
+def handler(events_fn, results_fn, out_fn, **kwargs):
     """I/O handling for the script."""
     logging.info("Events file: %s" % events_fn)
     events_f = open(events_fn, "r")
@@ -235,13 +235,8 @@ def handler(events_fn, results_fn, out_fn=None, **kwargs):
     logging.info("SEAware results file: %s" % results_fn)
     results_f = open(results_fn, "r")
     results_reader = csv.reader(results_f)
-    if out_fn is None:
-        out_f = sys.stdout
-        out_location = "standard out"
-    else:
-        out_f = open(out_fn, "w")
-        out_location = out_fn
-    logging.info("Output file: %s" % out_location)
+    out_f = open(out_fn, "w")
+    logging.info("Output file: %s" % out_fn)
     out_writer = csv.writer(out_f)
     try:
         try:
@@ -260,23 +255,32 @@ def handler(events_fn, results_fn, out_fn=None, **kwargs):
 
 def main(argv):
     """Parse arguments."""
-    logging.basicConfig(level=logging.INFO,
-                        format="%(levelname)s: %(message)s")
+    log_level = logging.INFO
+    log_format = "%(levelname)s: %(message)s"
+    logging.basicConfig(level=log_level, format=log_format)
     description = "Compute enrichment factors and q-values"
     parser = ArgumentParser(description=description)
     parser.add_argument("events",  
                         help="Events file mapping molecules to events")
     parser.add_argument("results",  
                         help="SEAware results mapping molecules to targets")
+    parser.add_argument("output", 
+                        help="output CSV file")
     parser.add_argument("-m", "--min-pairs", type=int, default=CUTOFF_MINPAIRS, 
         help="Minimum pairs cutoff for EF analysis (default: %(default)s)")
     parser.add_argument("-e", "--ef-cutoff", type=float, default=CUTOFF_EF, 
         help="EF factor cutoff to write results (default: %(default)s)")
-    parser.add_argument("-o", "--outfile", default=None, 
-                        help="output file (default: stdout)")
     options = parser.parse_args(args=argv[1:])
+    # Add file logger
+    log_fn = options.output.replace(".csv", "") + ".log"
+    file_handler = logging.FileHandler(log_fn, mode="w")
+    log_formatter = logging.Formatter(log_format)
+    file_handler.setFormatter(log_formatter)
+    file_handler.setLevel(log_level)
+    root_logger = logging.getLogger()
+    root_logger.addHandler(file_handler)
     return handler(events_fn=options.events, results_fn=options.results, 
-                   out_fn=options.outfile, min_pairs=options.min_pairs, 
+                   out_fn=options.output, min_pairs=options.min_pairs, 
                    ef_cutoff=options.ef_cutoff)
 
 
