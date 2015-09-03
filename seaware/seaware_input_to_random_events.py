@@ -28,7 +28,9 @@ sys.path.append(labware_path)
 from libraries.lab_utils import ScriptError, gopen
 
 
-DEFAULT_NUM_CLUSTERS = 100
+DEFAULT_SEED = 42
+DEFAULT_NUM_CLUSTERS = 200
+SIZE_MULTIPLIER = 1.0
 
 
 def silvermans_rule(data, verbose=False):
@@ -44,7 +46,8 @@ def silvermans_rule(data, verbose=False):
 
 def select_kde(data, crossfold=20):
     bw_est = silvermans_rule(data, verbose=True)
-    logging.info("Selecting bandwidth by %d crossfold validation" % crossfold)
+    logging.info("Selecting bandwidth through %d crossfold validation" %
+                 crossfold)
     grid = GridSearchCV(KernelDensity(),
         {"bandwidth": np.linspace(0.1 * bw_est, 2.0 * bw_est, 39)},
         cv=crossfold)
@@ -55,7 +58,7 @@ def select_kde(data, crossfold=20):
     return kde
 
 
-def read_target_sizes(targets_reader):
+def read_targets(targets_reader):
     field_sep = ";"
     mols_sep = ":"
     logging.info("Reading SEAware targets file")
@@ -63,9 +66,14 @@ def read_target_sizes(targets_reader):
     if row and row[0] == "target id":
         logging.info("Skipping column headers: %s" % row)
         row = targets_reader.next()
+    counts = []
+    molecules = set()
     for row in itertools.chain([row], targets_reader):
         tid, name, affinity, mols, description = row
-        yield mols.count(mols_sep) + 1
+        cids = mols.split(mols_sep)
+        counts.append(len(cids))
+        molecules.update(cids)
+    return counts, molecules
 
 
 def read_molecule_ids(in_reader):
@@ -88,22 +96,30 @@ def read_molecule_ids(in_reader):
     return cids
 
 
-def seaware_input_to_random_events(in_reader, targets_reader,
-                                   num_clusters=DEFAULT_NUM_CLUSTERS):
+def seaware_input_to_random_events(in_reader, targets_reader, 
+        num_clusters=DEFAULT_NUM_CLUSTERS, seeded=False, 
+        random_seed=DEFAULT_SEED):
     """Create random event clusters for enrichment analysis"""
-    np.random.seed(42)
-    random.seed(42)
-    sizes = list(read_target_sizes(targets_reader))
+    logging.info("Using random seed %d" % random_seed)
+    np.random.seed(random_seed)
+    random.seed(random_seed)
+    sizes, molecules = read_targets(targets_reader)
     kde = select_kde(np.array(sizes))
     cids = read_molecule_ids(in_reader)
+    if seeded:
+        logging.info("Seeding target molecules into input molecules")
+        molecules.update(cids)
+    else:
+        molecules = cids
+        logging.info("Sampling random event clusters")
     for i in xrange(num_clusters):
-        random_size = int(round(kde.sample()[0][0]))
+        random_size = int(round(kde.sample())*SIZE_MULTIPLIER)
         while random_size < 1:
-            random_size = int(round(kde.sample()[0][0]))
-        print random_size
+            random_size = int(round(kde.sample())*SIZE_MULTIPLIER)
         cluster_id = "cluster_%04d" % (i+1)
-        for cid in random.sample(cids, random_size):
+        for cid in random.sample(molecules, random_size):
             yield [cid, cluster_id]
+    logging.info("Finished")
 
 
 def handler(in_fn, targets_fn, out_fn, **kwargs):
@@ -133,8 +149,9 @@ def handler(in_fn, targets_fn, out_fn, **kwargs):
 
 def main(argv):
     """Parse arguments."""
-    logging.basicConfig(level=logging.INFO,
-                        format="%(levelname)s: %(message)s")
+    log_level = logging.INFO
+    log_format = "%(levelname)s: %(message)s"
+    logging.basicConfig(level=log_level, format=log_format)
     description = "Create random event clusters for enrichment factor analysis. The SEAware 'input' CSV file contains a collection of negative molecules that will serve as the random background. The SEAware 'targets' CSV file is used to estabilish the reference distribution of target sizes. Random samples are then drawn using a non-parametric gaussian kernel density estimator, where the bandwidth is choosen using crossfold validation. The output is an events file containing the desired number of random event clusters."
     parser = ArgumentParser(description=description)
     parser.add_argument("input",
@@ -145,9 +162,23 @@ def main(argv):
                         help="output events CSV file")
     parser.add_argument("-n", "--num-clusters", default=DEFAULT_NUM_CLUSTERS,
         help="number of random events clusters (default: %(default)s)")
+    parser.add_argument("-s", "--seeded", action="store_true", 
+        help="seed molecules from targets file into input molecules " + 
+             "before random selection")
+    parser.add_argument("-r", "--random-seed", default=DEFAULT_SEED, type=int, 
+                        help="set random integer seed (default: %(default)d)")
     options = parser.parse_args(args=argv[1:])
+    # Add file logger
+    log_fn = options.output.replace(".csv", "") + ".log"
+    file_handler = logging.FileHandler(log_fn, mode="w")
+    log_formatter = logging.Formatter(log_format)
+    file_handler.setFormatter(log_formatter)
+    file_handler.setLevel(log_level)
+    root_logger = logging.getLogger()
+    root_logger.addHandler(file_handler)
     return handler(in_fn=options.input, targets_fn=options.targets,
-                   out_fn=options.output, num_clusters=options.num_clusters)
+                   out_fn=options.output, num_clusters=options.num_clusters, 
+                   seeded=options.seeded)
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv))
