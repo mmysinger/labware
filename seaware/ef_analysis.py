@@ -19,7 +19,7 @@ import csv
 from collections import namedtuple, defaultdict, Counter
 import numpy as np
 from scipy import stats
-import statsmodels.sandbox.stats.multicomp as sm_multi
+from statsmodels.stats.multitest import multipletests
 
 module_path = os.path.realpath(os.path.dirname(__file__)) 
 labware_path = os.path.join(module_path, "..")
@@ -29,8 +29,9 @@ from libraries.lab_utils import ScriptError, gopen
 Target = namedtuple("Target", "name description")
 
 # XXX - MMM currently set for bitterdb, may want better defaults 
-CUTOFF_EF = 3.0           # Nat2012: EF > 1
 CUTOFF_MINPAIRS = 4       # Nat2012: Target-ADR pairs > 10 retained
+CUTOFF_EF = 3.0           # Nat2012: EF > 1
+CUTOFF_QVALUE = 1.0e-3    
 
 
 def flip_setdict(in_dict):
@@ -119,15 +120,10 @@ def precompute_sums(events_to_drugs, targets_to_drugs):
     for target, drugs in targets_to_drugs.iteritems():
         T[target] = sum(len(drugs_to_events[drug]) for drug in drugs)
 
-    # For each target-event pair, calculate number of molecules in common
-    p = {}
-    for target, t_drugs in targets_to_drugs.iteritems():
-        for event, e_drugs in events_to_drugs.iteritems():
-            p[(target, event)] = len(t_drugs & e_drugs)    
-    return E, T, p
+    return E, T
 
 
-def compute_efs(E, T, p, events_to_drugs, targets_to_drugs, 
+def compute_efs(E, T, events_to_drugs, targets_to_drugs, 
                 min_pairs=CUTOFF_MINPAIRS, ef_cutoff=CUTOFF_EF):
     """Compute enrichment factors"""
     # EF = p/(E*T/P)
@@ -136,27 +132,29 @@ def compute_efs(E, T, p, events_to_drugs, targets_to_drugs,
     # E = for each event, number of linked molecule-target pairs
     # T = for each target, number of linked molecule-event pairs
 
-    # Total count of all event-molecule-target triplets
-    P = sum(p.values())
-    logging.info("Total number event-molecule-target triplets: P = %d" % P)
-    P = float(P)
     efs = {}
-    for event in events_to_drugs:
+    # Total count of all event-molecule-target triplets
+    P = 0
+    for event, e_drugs in events_to_drugs.iteritems():
         ee = E[event]
         if ee == 0:
             continue
-        for target in targets_to_drugs:
+        for target, t_drugs in targets_to_drugs.iteritems():
             tt = T[target]
-            pte = p[(target, event)] 
+            # Compute number of molecules in common
+            pte = len(t_drugs & e_drugs)
+            P += pte
             if pte < min_pairs:
                 continue
             try:
-                ef = float(pte)/(ee*tt/P)
+                ef = float(pte)/(ee*tt)
             except:
                 logging.warn('EF Error', event, target, 
                              pte, ee, tt)
                 continue
             efs[(target, event)] = ef
+    for key, ef in efs.iteritems():
+        efs[key] = ef * P
     logging.info("Computed %d target-event enrichment factors" % len(efs))
     return efs
 
@@ -183,7 +181,7 @@ def map_contingency_tables(efs, events_to_drugs, targets_to_drugs):
     return contingency_tables
 
 
-def compute_q_values(contingencies):
+def compute_q_values(contingencies, bonferroni_count=None):
     """Compute p and q-values"""
     logging.info("Computing p and q-values")
     target_event_pairs = []
@@ -193,34 +191,46 @@ def compute_q_values(contingencies):
         target_event_pairs.append((target, event))
         p_vals.append(pvalue)
     #Calculate the qvalue (p-adjusted FDR)
-    reject_array, q_vals, alpha_c_sidak, alpha_c_bonf = sm_multi.multipletests(
-        p_vals, alpha=0.05, method='holm')
+    if bonferroni_count:
+        logging.info("Using Bonferroni correction for q-value calculations")
+        q_vals = [pval * float(bonferroni_count) for pval in p_vals]
+    else:
+        logging.info("Using Holm correction for q-value calculations")
+        reject_array, q_vals, alpha_c_sidak, alpha_c_bonf = multipletests(
+            p_vals, alpha=0.05, method='holm')
     return target_event_pairs, p_vals, q_vals
 
 
 def ef_analysis(events_reader, results_reader, min_pairs=CUTOFF_MINPAIRS, 
-                ef_cutoff=CUTOFF_EF):
+                ef_cutoff=CUTOFF_EF, qvalue_cutoff=CUTOFF_QVALUE, 
+                bonferroni=False):
     """Compute enrichment factors and write q-values."""
     logging.info("Using min-pairs cutoff = %d" % min_pairs)
     logging.info("Using EF cutoff = %.2f" % ef_cutoff)
+    logging.info("Using q-value cutoff = %g" % qvalue_cutoff)
     events_to_drugs, has_event = read_events(events_reader)
     targets_to_drugs, has_target, targets = read_results(results_reader, 
                                                              has_event)
     events_to_drugs = prune_events(events_to_drugs, has_event, has_target)
     del has_target, has_event
-    E, T, p = precompute_sums(events_to_drugs, targets_to_drugs)
-    efs = compute_efs(E, T, p, events_to_drugs, targets_to_drugs, 
+    E, T = precompute_sums(events_to_drugs, targets_to_drugs)
+    efs = compute_efs(E, T, events_to_drugs, targets_to_drugs, 
                       min_pairs=min_pairs, ef_cutoff=ef_cutoff)
+    bonferroni_count = None
+    if bonferroni:
+        bonferroni_count = len(efs)
+        efs = dict((k, v) for k, v in efs.iteritems() if v >= ef_cutoff)
     contingencies = map_contingency_tables(efs, events_to_drugs, 
                                            targets_to_drugs)
-    target_event_pairs, p_vals, q_vals = compute_q_values(contingencies)
+    target_event_pairs, p_vals, q_vals = compute_q_values(contingencies, 
+                                                          bonferroni_count)
     assert(len(target_event_pairs) == len(efs))
     logging.info("Writing output")
     yield ["uniprot_id", "targ_name", "event", "ef", "p-value", "q-value"]
     count = 0
     for te_pair, p_val, q_val in zip(target_event_pairs, p_vals, q_vals):
         target, event = te_pair
-        if efs[te_pair] > ef_cutoff:
+        if efs[te_pair] > ef_cutoff and q_val < qvalue_cutoff:
             count += 1
             yield [target, targets[target].name, event, "%.5g" % efs[te_pair],
                    "%.5g" % p_val, "%.5g" % q_val]
@@ -269,7 +279,15 @@ def main(argv):
     parser.add_argument("-m", "--min-pairs", type=int, default=CUTOFF_MINPAIRS, 
         help="Minimum pairs cutoff for EF analysis (default: %(default)s)")
     parser.add_argument("-e", "--ef-cutoff", type=float, default=CUTOFF_EF, 
-        help="EF factor cutoff to write results (default: %(default)s)")
+        help="Enrichment factor cutoff above which we write results " + 
+             "(default: %(default)s)")
+    parser.add_argument("-q", "--qvalue-cutoff", type=float, 
+        default=CUTOFF_QVALUE, 
+        help="Q-value cutoff below which we write results " + 
+             "(default: %(default)s)")
+    parser.add_argument("-b", "--bonferroni", action="store_true", 
+        help="Use Bonferroni q-value correction (saves memory at " + 
+             "high EF cutoffs while still yielding stable q-values)")
     options = parser.parse_args(args=argv[1:])
     # Add file logger
     log_fn = options.output.replace(".csv", "") + ".log"
@@ -281,7 +299,9 @@ def main(argv):
     root_logger.addHandler(file_handler)
     return handler(events_fn=options.events, results_fn=options.results, 
                    out_fn=options.output, min_pairs=options.min_pairs, 
-                   ef_cutoff=options.ef_cutoff)
+                   ef_cutoff=options.ef_cutoff, 
+                   qvalue_cutoff=options.qvalue_cutoff, 
+                   bonferroni=options.bonferroni)
 
 
 if __name__ == "__main__":
