@@ -19,7 +19,7 @@ import csv
 import numpy
 import matplotlib
 from matplotlib import pyplot
-
+import seaborn
 
 module_path = os.path.realpath(os.path.dirname(__file__)) 
 labware_path = os.path.join(module_path, "..")
@@ -37,32 +37,30 @@ def build_array(value_dict, x_labels, y_labels):
                             for x_label in x_labels])
     return numpy.array(values)
 
+
 def plot_heatmap(xy_data, out_fn, x_labels=None, y_labels=None):
     logging.info("Input data shape: %s" % str(xy_data.shape))
-    figure, axis = pyplot.subplots()
-    figure.set_size_inches(10, 20)
-    cmap = matplotlib.cm.get_cmap('Blues')
-    cmap.set_under('w')
-    heatmap = axis.imshow(xy_data, cmap=cmap, interpolation='None',
-                          vmin=3.0, vmax=50.0, aspect=0.5)
-    cbar = pyplot.colorbar(heatmap, aspect=40)
-    cbar.set_label('EF', size=24)
-    cbar.ax.tick_params(labelsize=24) 
-    axis.set_xticks(numpy.arange(xy_data.shape[1]), minor=False)
-    axis.set_yticks(numpy.arange(xy_data.shape[0]), minor=False)
+    figure, axes = pyplot.subplots()
+    x = max(7 + 0.15 * len(xy_data[0]), 10)
+    y = max(5 + 0.15 * len(xy_data), 10)
+    logging.info("Using figure size: %.1f x %.1f" %  (x, y))
+    figure.set_size_inches(x, y)
     if x_labels == None:
         x_labels = ""
-    axis.set_xticklabels(x_labels, minor=False, rotation='vertical', fontsize=8)
     if y_labels == None:
         y_labels = ""
-    axis.set_yticklabels(y_labels, minor=False, fontsize=8)
-    pyplot.title('Enrichment Factor Heatmap', fontsize=32)
-    #axis.axis('tight')
-    pyplot.savefig(out_fn)
-    #pyplot.show()
+    seaborn.heatmap(xy_data, vmin=3.0, vmax=50.0, square=True, ax=axes, 
+                    xticklabels=x_labels, yticklabels=y_labels, 
+                    cmap="Blues", linewidth=0.1, linecolor="#f0f0ff", 
+                    cbar_kws={"aspect": 40})
+    cbar_axes = figure.axes[-1]
+    cbar_axes.tick_params(labelsize=20)
+    cbar_axes.set_xlabel("EF", size=24)
+    pyplot.title("Enrichment Factor Heatmap", fontsize=24, y=1.01)
+    pyplot.savefig(out_fn, bbox_inches="tight", pad_inches=0.3)
 
 
-def heatmap(in_csv, out_fn):
+def heatmap(in_csv, out_fn, alphabetical=False):
     """Plot heatmap of EF data."""
     value_dict = {}
     header = in_csv.next()
@@ -87,11 +85,13 @@ def heatmap(in_csv, out_fn):
                                          threshold=0.5)
     clustered_target_ids = hierarchical_y(evalue_data, target_ids, 
                                           threshold=0.9)
+    graph_target_ids = clustered_target_ids
+    if alphabetical:
+        graph_target_ids = target_ids
     evalue_data = build_array(value_dict, clustered_event_ids,
-                              clustered_target_ids)
+                              graph_target_ids)
     plot_heatmap(evalue_data, out_fn, x_labels=clustered_event_ids,
-                 #y_labels=clustered_target_ids)
-                 y_labels=target_ids)
+                 y_labels=graph_target_ids)
 
 
 def handler(in_fn=None, out_fn=None, **kwargs):
@@ -119,8 +119,12 @@ def main(argv):
                         help="input EF analysis CSV file")
     parser.add_argument("outfile", 
                         help="output heatmap PNG file")
+    parser.add_argument("-a", "--alphabetical", action="store_true",  
+                        help="Arrange targets in alphabetical " +
+                             "instead of clustured order")
     options = parser.parse_args(args=argv[1:])
-    return handler(in_fn=options.infile, out_fn=options.outfile)
+    return handler(in_fn=options.infile, out_fn=options.outfile, 
+                   alphabetical=options.alphabetical)
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv))
