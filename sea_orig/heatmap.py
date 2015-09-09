@@ -67,21 +67,25 @@ def heatmap(in_csv, out_fn, ref_suffix="_10000"):
         query_id, ref_id, evalue, maxtc = row
         if ref_suffix and ref_id.endswith(ref_suffix):
             ref_id = ref_id[:-len(ref_suffix)]
+        if not ref_id.endswith("_HUMAN"):
+            continue
         log_evalue_dict[(query_id, ref_id)] = -numpy.log10(float(evalue))
     query_ids = list(set(query_id for query_id, ref_id in
                          log_evalue_dict.iterkeys()))
     logging.info("Read in %d query ids" % len(query_ids))
     ref_ids = list(set(ref_id for query_id, ref_id in
                        log_evalue_dict.iterkeys()))
-    #ref_ids.sort()
+    ref_ids.sort()
     logging.info("Read in %d reference ids" % len(ref_ids))
     evalue_data = build_array(log_evalue_dict, query_ids, ref_ids)
     clustered_query_ids = hierarchical_x(evalue_data, query_ids, threshold=0.5)
     clustered_ref_ids = hierarchical_y(evalue_data, ref_ids, threshold=0.9)
+    #graph_ref_ids = clustered_ref_ids
+    graph_ref_ids = ref_ids
     evalue_data = build_array(log_evalue_dict, clustered_query_ids,
-                              clustered_ref_ids)
+                              graph_ref_ids)
     plot_heatmap(evalue_data, out_fn, x_labels=clustered_query_ids,
-                 y_labels=clustered_ref_ids)
+                 y_labels=graph_ref_ids)
 
 
 def handler(in_fn=None, out_fn=None, **kwargs):
