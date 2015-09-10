@@ -1,0 +1,90 @@
+#!/usr/bin/env python
+"""
+Copyright (C) 2015 Michael M Mysinger
+
+Convert CSV input to tab-delimited output (or vice versa) 
+
+Michael Mysinger 201509 Created
+"""
+
+import os
+import sys
+import logging
+import os.path as op
+from argparse import ArgumentParser
+import csv
+
+
+class ScriptError(StandardError):
+    def __init__(self, msg, value=99):
+        self.value = value
+        Exception.__init__(self, msg)
+
+
+def gopen(fname, mode='rU'):
+    """Flexibly open compressed files."""
+    if os.path.splitext(fname)[-1] == '.%s' % 'gz':
+        if 'b' not in mode:
+            # gzip does not support universal newlines
+            mode = mode.replace('U', '') + 'b'
+        f = gzip.open(fname, mode)
+    elif os.path.splitext(fname)[-1] == '.%s' % 'bz2':
+        if 'b' not in mode:
+            # bzip2 does support universal newlines
+            mode = mode + 'b'
+        f = bz2.BZ2File(fname, mode)
+    else:
+        f = open(fname, mode)
+    return f
+
+
+class unix_tab(csv.excel_tab):
+    lineterminator='\n'
+csv.register_dialect("unix-tab", unix_tab)
+
+
+def tabify(in_fn=None, out_fn=None, csv_output=False):
+    """Convert CSV input to tab-delimited output (or vice versa)"""
+    if in_fn is None:
+        in_f = sys.stdin
+    else:
+        in_f = gopen(in_fn, "r")    
+    if out_fn is None:
+        out_f = sys.stdout
+    else:
+        out_f = gopen(out_fn, "w")
+    if csv_output:
+        in_wrapped = csv.reader(in_f, 'unix-tab')
+        out_wrapped = csv.writer(out_f)
+    else:
+        in_wrapped = csv.reader(in_f)
+        out_wrapped = csv.writer(out_f, 'unix-tab')
+    try:
+        for row in in_wrapped:
+            out_wrapped.writerow(row)
+    finally:
+        in_f.close()
+        out_f.close()
+    return 0
+
+
+def main(argv):
+    """Parse arguments."""
+    logging.basicConfig(level=logging.INFO,
+                        format="%(levelname)s: %(message)s")
+    description = "Convert CSV input to tab-delimited output (or vice versa)."
+    parser = ArgumentParser(description=description)
+    parser.add_argument("-i", "--infile", default=None, 
+                        help="input file (default: stdin)")
+    parser.add_argument("-o", "--outfile", default=None, 
+                        help="output file (default: stdout)")
+    parser.add_argument("-c", "--csv-output", action="store_true", 
+        help="Convert tab-delimited input to CSV output instead")
+    options = parser.parse_args(args=argv[1:])
+    return tabify(in_fn=options.infile, out_fn=options.outfile,
+                   csv_output=options.csv_output)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
+
