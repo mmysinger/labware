@@ -13,17 +13,19 @@ import logging
 import os.path as op
 from argparse import ArgumentParser
 
-class ScriptError(StandardError):
-    def __init__(self, msg, value=99):
-        self.value = value
-        Exception.__init__(self, msg)
 
 def libraries_path():
-    """Example for how to bootstrap this package into a script"""
+    """Example for how to bootstrap this package into a new script"""
     module_path = os.path.realpath(os.path.dirname(__file__)) 
     labware_path = os.path.join(module_path, "..")
     sys.path.append(labware_path)
     #from libraries.lab_utils import ScriptError, gopen
+
+
+class ScriptError(StandardError):
+    def __init__(self, msg, value=99):
+        self.value = value
+        Exception.__init__(self, msg)
 
 
 def gopen(fname, mode='rU'):
