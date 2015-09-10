@@ -42,8 +42,10 @@ def filter_seaware_results(seaware_reader, seaware_writer, best_affinity=False,
     for row_counter, row in enumerate(seaware_reader):
         if setcore:
             cid, tuid, affinity, pvalue, maxtc, short, desc = row
-        else:
-            cid, smiles, tuid, affinity, pvalue, maxtc, short, desc = row
+        elif len(row) == 8:
+            cid, _, tuid, affinity, pvalue, maxtc, short, desc = row
+        elif len(row) > 8:
+            cid, tuid, affinity, pvalue, maxtc, short, desc = row[:7]
         pvalue = float(pvalue)
         maxtc = float(maxtc)
         if pvalue_threshold and pvalue >= pvalue_threshold:
