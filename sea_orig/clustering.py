@@ -8,6 +8,7 @@ Adapted from original code by Leo Gendelev & Garrett Gaskins
 Michael Mysinger 201504 Created
 """
 
+import logging
 import numpy
 from scipy.spatial.distance import pdist
 from scipy.cluster.hierarchy import linkage, fcluster
@@ -35,7 +36,7 @@ def hierarchical_y(xy_data, y_labels, metric="correlation",
     out_labels = []
     for cluster in sorted(cluster_dict, reverse=True,
                           key=lambda x: cluster_dict[x][0]):
-        print cluster, cluster_dict[cluster]
+        logging.debug("%s %s" % (cluster, cluster_dict[cluster]))
         for item_score, label in sorted(cluster_dict[cluster][1], reverse=True):
             out_labels.append(label)
     return out_labels
