@@ -21,23 +21,16 @@ import matplotlib
 from matplotlib import pyplot
 import seaborn
 
+# Add labware to sys.path
 module_path = os.path.realpath(os.path.dirname(__file__)) 
 labware_path = os.path.join(module_path, "..")
 sys.path.append(labware_path)
+
 from libraries.lab_utils import ScriptError, gopen
-from sea_orig.clustering import hierarchical_x, hierarchical_y, hierarchical_both
-
-QVALUE_CUTOFF = 1.0e-3
-EF_CUTOFF = 5.0
-EVALUE_CUTOFF = 1.0e-12
-
-
-def build_array(value_dict, x_labels, y_labels):
-    values = []
-    for y_label in y_labels:
-        values.append([value_dict.get((x_label, y_label), 0.0)
-                            for x_label in x_labels])
-    return numpy.array(values)
+from sea_orig.clustering import hierarchical_x, hierarchical_y, \
+    hierarchical_both
+from sea_orig.heatmap import read_sea
+from ef_heatmap import build_array, read_ef
 
 
 def summed_array(value_dicts, x_labels, y_labels):
@@ -74,49 +67,8 @@ def plot_heatmap(xy_data, out_fn, x_labels=None, y_labels=None):
                     xticklabels=x_labels, yticklabels=y_labels, 
                     cmap="RdBu", linewidth=0.1, linecolor="#f0f0ff", 
                     cbar=False)
-    pyplot.title("Enrichment Factor Heatmap", fontsize=24, y=1.01)
+    pyplot.title("Dual SEA & EF Heatmap", fontsize=24, y=1.01)
     pyplot.savefig(out_fn, bbox_inches="tight", pad_inches=0.3)
-
-
-def read_ef(ef_csv):
-    ef_dict = {}
-    header = ef_csv.next()
-    logging.info("Skipping EF input header: %s" % str(header))
-    for row in ef_csv:
-        tid, tname, event, ef, pvalue, qvalue = row
-        ef = float(ef)
-        if float(qvalue) > QVALUE_CUTOFF:
-            continue
-        if ef < EF_CUTOFF:
-            continue
-        if not tname.endswith("_HUMAN"):
-            continue
-        if event.startswith("cluster_"):
-            continue
-        ef_dict[(event, tname)] = ef
-    logging.info("Read %d enrichment factors" % len(ef_dict))
-    return ef_dict 
-
-
-def read_sea(sea_csv):
-    sea_dict = {}
-    header = sea_csv.next()
-    logging.info("Skipping SEA input header: %s" % str(header))
-    for row in sea_csv:
-        query_id, reference_id, evalue, maxtc = row
-        evalue = float(evalue)
-        if evalue > EVALUE_CUTOFF:
-            continue
-        try:
-            target_id, affinity = reference_id.rsplit("_", 1)
-        except ValueError:
-            target_id = reference_id
-            affinity = None
-        if not target_id.endswith("_HUMAN"):
-            continue
-        sea_dict[(query_id, target_id)] = -numpy.log10(evalue)
-    logging.info("Read %d SEA e-values" % len(sea_dict))
-    return sea_dict
 
 
 def normalize(in_dict, lower=0.0, percentile=90.0):
@@ -144,7 +96,7 @@ def dual_heatmap(ef_csv, sea_csv, out_fn, alphabetical=False, clusters="both"):
 
     clusters = both | sea | ef
     """
-    ef_dict = read_ef(ef_csv)
+    ef_dict = read_ef(ef_csv, clusters=False)
     ef_norm, limits = normalize(ef_dict, lower=3.0)
     logging.info("EFs normalized from %g to %g" % limits) 
     ef_events = set(event for event, target in ef_norm.iterkeys())
@@ -164,18 +116,18 @@ def dual_heatmap(ef_csv, sea_csv, out_fn, alphabetical=False, clusters="both"):
                  (len(event_ids), len(target_ids)))
     if clusters.lower() == "both":
         logging.info("Clustering using both EF and SEA results")
-        evalue_data = summed_array([sea_norm, ef_norm], event_ids, target_ids)
+        value_data = summed_array([sea_norm, ef_norm], event_ids, target_ids)
     elif clusters.lower() == "sea":
         logging.info("Clustering using SEA results only")
-        evalue_data = build_array(sea_dict, event_ids, target_ids)
+        value_data = build_array(sea_dict, event_ids, target_ids)
     elif clusters.lower() == "ef":
         logging.info("Clustering using EF results only")
-        evalue_data = build_array(ef_dict, event_ids, target_ids)
+        value_data = build_array(ef_dict, event_ids, target_ids)
     else:
         raise ValueError("Unrecognized clusters parameter %s" % clusters)
-    clustered_event_ids = hierarchical_x(evalue_data, event_ids, 
+    clustered_event_ids = hierarchical_x(value_data, event_ids, 
                                          threshold=0.5)
-    clustered_target_ids = hierarchical_y(evalue_data, target_ids, 
+    clustered_target_ids = hierarchical_y(value_data, target_ids, 
                                           threshold=0.9)
     graph_target_ids = clustered_target_ids
     if alphabetical:
@@ -183,13 +135,13 @@ def dual_heatmap(ef_csv, sea_csv, out_fn, alphabetical=False, clusters="both"):
         target_ids.sort()
         graph_target_ids = target_ids
     ef_norm = invert(ef_norm)
-    evalue_data = joined_array([sea_norm, ef_norm], 
+    value_data = joined_array([sea_norm, ef_norm], 
                                clustered_event_ids, graph_target_ids)
     graph_event_ids = []
     for event in clustered_event_ids:
         graph_event_ids.append(event + " sea")
         graph_event_ids.append(event + " ef")
-    plot_heatmap(evalue_data, out_fn, x_labels=graph_event_ids,
+    plot_heatmap(value_data, out_fn, x_labels=graph_event_ids,
                  y_labels=graph_target_ids)
 
 
