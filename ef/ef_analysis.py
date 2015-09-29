@@ -57,7 +57,7 @@ def read_events(events_reader):
     events_to_drugs = defaultdict(set)
     for row in events_reader:
         cid, eid = row[:2]
-        # XXX - may want two optional columns, for extra drug and event info
+        # IDEA - may want two optional columns, for extra drug and event info
         # read Garrett's file format
         #cid, altid, eid = row
         events_to_drugs[eid].add(cid)
