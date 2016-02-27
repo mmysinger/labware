@@ -1,0 +1,83 @@
+#!/bin/env python
+"""Compute minimum over a data column.
+
+Michael Mysinger 201110 Created
+"""
+
+import os
+import sys
+import logging
+import os.path as op
+from optparse import OptionParser
+
+class ScriptError(Exception):
+    def __init__(self, msg, value=99):
+        self.value = value
+        Exception.__init__(self, msg)
+
+def get_column(in_f, column=0):
+    """Get numeral values from a column."""
+    for line in in_f:
+        value = line.split()[column]
+        try:
+            value = float(value)
+        except ValueError:
+            value = None
+        yield value
+
+def min_column(in_f, column=0):
+    """Compute min of a given column."""
+    minimum = None
+    for line in in_f:
+        spl = line.split()
+        if len(spl) > column:
+            value = float(line.split()[column])
+            if minimum is None or value < minimum:
+                minimum = value
+    yield "%f\n" % minimum
+
+def handleio(infile=None, outfile=None, **kwargs):
+    """I/O handling for the script."""
+    if infile is None:
+        in_f = sys.stdin
+    else:
+        in_f = open(infile, "r")
+    if outfile is None:
+        out_f = sys.stdout
+    else:
+        out_f = open(outfile, "w")
+    try:
+        try:
+            for result in min_column(in_f, **kwargs):
+                out_f.write(result)
+        except ScriptError, message:
+            logging.error(message)
+            return message.value
+    finally:
+        in_f.close()
+        out_f.close()
+    return 0
+
+def main(argv):
+    """Parse arguments."""
+    logging.basicConfig(level=logging.INFO,
+                        format="%(levelname)s: %(message)s")
+    description = "Compute minimum of a data column."
+    usage = "%prog [options]"
+    version = "%prog: version 201110 - created by Michael Mysinger"
+    parser = OptionParser(usage=usage, description=description,
+                          version=version)
+    parser.set_defaults(infile=None, outfile=None)
+    parser.add_option("-i", "--infile", 
+                      help="input file (default: stdin)")
+    parser.add_option("-o", "--outfile", 
+                      help="output file (default: stdout)")
+    options, args = parser.parse_args(args=argv[1:])
+    if len(args):
+        parser.error("program takes no positional arguments.\n" +
+                     "  Use --help for more information.")
+    return handleio(infile=options.infile, outfile=options.outfile)
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
+

@@ -1,0 +1,70 @@
+#!/bin/env python
+"""Compute the mean and sample standard deviation of input column.
+
+Michael Mysinger 201202 Created
+"""
+
+import os
+import sys
+import logging
+from math import sqrt
+from optparse import OptionParser
+
+def standard_deviation(infile=None, column=0):
+    """Calculate sample standard deviation using Welford's method."""
+    m = 0.0
+    s = 0.0
+    k = 1
+    for line in infile:
+        spl = line.split()
+        if len(spl) > column:
+            x = float(spl[column])
+            m_old = m
+            m += (x - m_old)/k
+            s += (x - m_old)*(x - m)
+            k += 1
+    mean = m
+    std_dev = sqrt(s/(k-2))
+    return mean, std_dev
+
+def handleio(infile=None, outfile=None, **kwargs):
+    """I/O handling for the script."""
+    if infile is None:
+        inf = sys.stdin
+    else:
+        inf = open(infile, "r")
+    if outfile is None:
+        outf = sys.stdout
+    else:
+        outf = open(outfile, "w")
+    results = standard_deviation(inf, **kwargs)
+    inf.close()
+    outf.write("%f\t%f" % results +"\n")
+    outf.close()
+    return 0
+
+def main(argv):
+    """Parse arguments."""
+    logging.basicConfig(level=logging.INFO,
+                        format="%(levelname)s: %(message)s")
+    description = "Compute the mean and sample standard deviation of input column."
+    usage = "%prog [options]"
+    version = "%prog: version 201202 - created by Michael Mysinger"
+    parser = OptionParser(usage=usage, description=description,
+                          version=version)
+    parser.set_defaults(infile=None, outfile=None, column=1)
+    parser.add_option("-i", "--infile", 
+                      help="input file (default: stdin)")
+    parser.add_option("-o", "--outfile", 
+                      help="output file (default: stdout)")
+    parser.add_option("-c", "--column", type="int", 
+        help="column from which to compute statistics (default: %default)")
+    options, args = parser.parse_args(args=argv[1:])
+    if len(args):
+        parser.error("program takes no positional arguments.\n" +
+                     "  Use --help for more information.")
+    return handleio(infile=options.infile, outfile=options.outfile, 
+                    column=options.column - 1)
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

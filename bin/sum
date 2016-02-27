@@ -1,0 +1,61 @@
+#!/bin/env python
+"""Compute the average of input column.
+
+Michael Mysinger 201108 Created
+"""
+
+import os
+import sys
+import logging
+from optparse import OptionParser
+
+def average(infile=None, column=0):
+    """Module code starts here."""
+    total = 0.0
+    for line in infile:
+        spl = line.split()
+        if len(spl) > column:
+            total += float(line.split()[column])
+    return total
+
+def handleio(infile=None, outfile=None, **kwargs):
+    """I/O handling for the script."""
+    if infile is None:
+        inf = sys.stdin
+    else:
+        inf = open(infile, "r")
+    if outfile is None:
+        outf = sys.stdout
+    else:
+        outf = open(outfile, "w")
+    result = average(inf, **kwargs)
+    inf.close()
+    outf.write(str(result)+"\n")
+    outf.close()
+    return 0
+
+def main(argv):
+    """Parse arguments."""
+    logging.basicConfig(level=logging.INFO,
+                        format="%(levelname)s: %(message)s")
+    description = "Template: paragraph description goes here."
+    usage = "%prog [options]"
+    version = "%prog: version 201108 - created by Michael Mysinger"
+    parser = OptionParser(usage=usage, description=description,
+                          version=version)
+    parser.set_defaults(infile=None, outfile=None, column=1)
+    parser.add_option("-i", "--infile", 
+                      help="input file (default: stdin)")
+    parser.add_option("-o", "--outfile", 
+                      help="output file (default: stdout)")
+    parser.add_option("-c", "--column", type="int", 
+        help="column from which to compute average (default: %default)")
+    options, args = parser.parse_args(args=argv[1:])
+    if len(args):
+        parser.error("program takes no positional arguments.\n" +
+                     "  Use --help for more information.")
+    return handleio(infile=options.infile, outfile=options.outfile, 
+                    column=options.column - 1)
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
